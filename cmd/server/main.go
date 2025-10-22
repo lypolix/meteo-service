@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-co-op/gocron/v2"
+	"github.com/lypolix/meteo-service/internal/client/http/geocoding"
 )
 
 const httpPort = ":3000"
@@ -18,10 +20,27 @@ func main()  {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
+	httpClient := &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	geocodingClient := geocoding.NewClient(httpClient)
+
 	r.Get("/{city}", func(w http.ResponseWriter, r *http.Request) {
 		city := chi.URLParam(r, "city")
+
+		res, err := geocodingClient.GetCoords(city)
+		if err != nil {
+			log.Println(err)
+		}
+
+		raw, err := json.Marshal(res)
+		if err != nil {
+			log.Println(err)
+		}
+
 		fmt.Printf("Requested city: %s\n", city)
-		_, err := w.Write([]byte("welcome"))
+		_, err = w.Write(raw)
 		if err != nil {
 			log.Println(err)
 		}

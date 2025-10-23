@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	httpPort = ":3000"
+	httpPort = ":8080"
 	city     = "moscow"
 )
 
@@ -36,7 +36,7 @@ func main() {
 	r.Use(middleware.Logger)
 	ctx := context.Background()
 
-	conn, err := pgx.Connect(ctx, "postgresql://postgres:password@localhost:54321/meteo-service")
+	conn, err := pgx.Connect(ctx, "postgresql://postgres:password@localhost:54321/meteo?sslmode=disable")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		panic(err)
@@ -149,7 +149,7 @@ func initJobs(ctx context.Context, scheduler gocron.Scheduler, conn *pgx.Conn) (
 					return
 				}
 
-				_, err = conn.Exec(ctx, "insert into meteo (city, temperature, timestamp) values (%$1, $2, $3)", city, openMetRes.Current.Temperature2m, timestamp)
+				_, err = conn.Exec(ctx, "insert into meteo (city, temperature, timestamp) values ($1, $2, $3)", city, openMetRes.Current.Temperature2m, timestamp)
 				if err != nil {
 					log.Println(err)
 					return 

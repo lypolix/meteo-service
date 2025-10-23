@@ -10,7 +10,7 @@ type client struct {
 	httpClient *http.Client
 }
 
-type Response []struct {
+type Response struct {
 	Name      string  `json:"name"`
 	Country   string  `json:"country"`
 	Latitude  float64 `json:"latitude"`
@@ -23,16 +23,16 @@ func NewClient(httpClient *http.Client) *client {
 	}
 }
 
-func (c *client) GetCoords(city string) (Response, error) {
+func (c *client) GetCoords(city string) ([]Response, error) {
 	res, err := c.httpClient.Get(fmt.Sprintf("https://geocoding-api.open-meteo.com/v1/search?name=%s&count=1&language=ru&format=json", city))
 	if err != nil {
-		return Response{}, err
+		return []Response{}, err
 	}
 
 	defer res.Body.Close()
 	
 	if res.StatusCode != http.StatusOK {
-		return Response{}, fmt.Errorf("status code %d", res.StatusCode)
+		return []Response{}, fmt.Errorf("status code %d", res.StatusCode)
 	}
 
 	var geoResp struct {
@@ -41,9 +41,9 @@ func (c *client) GetCoords(city string) (Response, error) {
 
 	err = json.NewDecoder(res.Body).Decode(&geoResp)
 	if err != nil {
-		return Response{}, err
+		return []Response{}, err
 	}
 
-	return geoResp.Results[0], nil
+	return geoResp.Results, nil
 
 }

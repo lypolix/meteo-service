@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-co-op/gocron/v2"
 	"github.com/lypolix/meteo-service/internal/client/http/geocoding"
+	openmeteo "github.com/lypolix/meteo-service/internal/client/http/open_meteo"
 )
 
 const httpPort = ":3000"
@@ -25,16 +26,20 @@ func main()  {
 	}
 
 	geocodingClient := geocoding.NewClient(httpClient)
+	openmeteoClient := openmeteo.NewClient(httpClient)
 
 	r.Get("/{city}", func(w http.ResponseWriter, r *http.Request) {
 		city := chi.URLParam(r, "city")
 
-		res, err := geocodingClient.GetCoords(city)
+		geoRes, err := geocodingClient.GetCoords(city)
 		if err != nil {
 			log.Println(err)
+			return
 		}
 
-		raw, err := json.Marshal(res)
+		openMetRes, err := openmeteoClient.GetTemperature(geoRes[0].Latitude, geoRes[0].Longitude)
+
+		raw, err := json.Marshal(openMetRes)
 		if err != nil {
 			log.Println(err)
 		}

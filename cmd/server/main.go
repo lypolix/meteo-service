@@ -15,31 +15,41 @@ import (
 	openmeteo "github.com/lypolix/meteo-service/internal/client/http/open_meteo"
 )
 
-const httpPort = ":3000"
+const (
+	httpPort = ":3000"
+	city     = "moscow"
+)
 
-func main()  {
+type Values struct {
+	Timestamp   time.Time
+	Temperature float64
+}
+
+type Storage struct {
+	data map[string][]Values
+	mu   sync.RWMutex
+}
+
+func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
-	httpClient := &http.Client{
-		Timeout: time.Second * 10,
+	storage := &Storage{
+		data: make(map[string][]Values),
 	}
 
-	geocodingClient := geocoding.NewClient(httpClient)
-	openmeteoClient := openmeteo.NewClient(httpClient)
-
 	r.Get("/{city}", func(w http.ResponseWriter, r *http.Request) {
-		city := chi.URLParam(r, "city")
+		cityName := chi.URLParam(r, "city")
 
-		geoRes, err := geocodingClient.GetCoords(city)
-		if err != nil {
-			log.Println(err)
+		storage.mu.RLock()
+		defer storage.mu.RUnlock()
+		
+		values, ok := storage.data[cityName]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-
-		openMetRes, err := openmeteoClient.GetTemperature(geoRes[0].Latitude, geoRes[0].Longitude)
-
-		raw, err := json.Marshal(openMetRes)
+		raw, err := json.Marshal(values)
 		if err != nil {
 			log.Println(err)
 		}
@@ -56,7 +66,7 @@ func main()  {
 		panic(err)
 	}
 
-	jobs, err := initJobs(s)
+	jobs, err := initJobs(s, storage)
 	if err != nil {
 		panic(err)
 	}
@@ -70,35 +80,59 @@ func main()  {
 		fmt.Println("starting server on port " + httpPort)
 		err = http.ListenAndServe(httpPort, r)
 		if err != nil {
-		panic(err)
-	}
+			panic(err)
+		}
 	}()
-	
 
-	go func(){
+	go func() {
 		defer wg.Done()
 
 		fmt.Printf("starting job: %v\n", jobs[0].ID())
 		s.Start()
 	}()
 
-
 	wg.Wait()
-	
+
 }
 
+func initJobs(scheduler gocron.Scheduler, storage *Storage) ([]gocron.Job, error) {
 
-func initJobs(scheduler gocron.Scheduler) ([]gocron.Job, error){
-	
+	httpClient := &http.Client{
+		Timeout: time.Second * 10,
+	}
 
-	// add a job to the scheduler
+	geocodingClient := geocoding.NewClient(httpClient)
+	openmeteoClient := openmeteo.NewClient(httpClient)
+
 	j, err := scheduler.NewJob(
 		gocron.DurationJob(
 			10*time.Second,
 		),
 		gocron.NewTask(
 			func() {
-				fmt.Println("Hello")
+				geoRes, err := geocodingClient.GetCoords(city)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+
+				openMetRes, err := openmeteoClient.GetTemperature(geoRes[0].Latitude, geoRes[0].Longitude)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+
+				storage.mu.Lock()
+				defer storage.mu.Unlock()
+
+				timestamp, err := time.Parse("2006-01-02T15:04", openMetRes.Current.Time)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				storage.data[city] = append(storage.data[city], Values{Timestamp: timestamp, Temperature: openMetRes.Current.Temperature2m})
+
+				fmt.Printf("updated data for city: %s\n", city)
 			},
 		),
 	)
@@ -108,7 +142,3 @@ func initJobs(scheduler gocron.Scheduler) ([]gocron.Job, error){
 
 	return []gocron.Job{j}, nil
 }
-
-
-
-

@@ -6,12 +6,12 @@ import (
 	"net/http"
 )
 
-type client struct {
+type Client struct {
 	httpClient *http.Client
 }
 
-func NewClient(httpClient *http.Client) *client {
-	return &client{
+func NewClient(httpClient *http.Client) *Client {
+	return &Client{
 		httpClient: httpClient,
 	}
 }
@@ -23,7 +23,7 @@ type Response struct {
 	}
 }
 
-func (c *client) GetTemperature(lat, long float64) (Response, error) {
+func (c *Client) GetTemperature(lat, long float64) (Response, error) {
 	res, err := c.httpClient.Get(fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f&current=temperature_2m", lat, long))
 	if err != nil {
 		return Response{}, err

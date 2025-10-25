@@ -3,15 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
@@ -22,13 +22,14 @@ import (
 
 const (
 	httpPort = ":8080"
-	city     = "moscow"
 )
 
+var mainCities = []string{"moscow", "london", "paris", "new york", "tokyo"}
+
 type Meteo struct {
-	Name        string    `db:"name"`
-	Timestamp   time.Time `db:"timestamp"`
-	Temperature float64   `db:"temperature"`
+	Name        string    `db:"name" json:"name"`
+	Timestamp   time.Time `db:"timestamp" json:"timestamp"`
+	Temperature float64   `db:"temperature" json:"temperature"`
 }
 
 func main() {
@@ -36,49 +37,95 @@ func main() {
 	r.Use(middleware.Logger)
 	ctx := context.Background()
 
-	conn, err := pgx.Connect(ctx, "postgresql://postgres:password@localhost:54321/meteo?sslmode=disable")
+	pool, err := pgxpool.New(ctx, "postgresql://postgres:password@localhost:54321/meteo?sslmode=disable")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Unable to create connection pool: %v\n", err)
 		panic(err)
 	}
-	defer conn.Close(ctx)
+	defer pool.Close()
+
+	if err := pool.Ping(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to ping database: %v\n", err)
+		panic(err)
+	}
+
+	httpClient := &http.Client{
+		Timeout: time.Second * 10,
+	}
+	geocodingClient := geocoding.NewClient(httpClient)
+	openmeteoClient := openmeteo.NewClient(httpClient)
 
 	r.Get("/{city}", func(w http.ResponseWriter, r *http.Request) {
 		cityName := chi.URLParam(r, "city")
+		cityName = strings.ToLower(cityName) 
 
 		var meteo Meteo
 
-		err = conn.QueryRow(
+		err = pool.QueryRow(
 			ctx,
-			"select name, timestamp, temperature from meteo where name = 'moscow' order by timestamp desc limit 1", cityName,
+			"select name, timestamp, temperature from meteo where name = $1 order by timestamp desc limit 1",
+			cityName,
 		).Scan(&meteo.Name, &meteo.Timestamp, &meteo.Temperature)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte("not found"))
+
+		if err != nil || time.Since(meteo.Timestamp) > time.Hour {
+			log.Printf("Fetching fresh data for city: %s\n", cityName)
+
+			geoRes, err := geocodingClient.GetCoords(cityName)
+			if err != nil {
+				log.Printf("Geocoding error for %s: %v\n", cityName, err)
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("geocoding error"))
 				return
 			}
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("internal error"))
-			return
+
+			if len(geoRes) == 0 {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte("city not found"))
+				return
+			}
+
+			openMetRes, err := openmeteoClient.GetTemperature(geoRes[0].Latitude, geoRes[0].Longitude)
+			if err != nil {
+				log.Printf("Weather API error for %s: %v\n", cityName, err)
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("weather api error"))
+				return
+			}
+
+			timestamp, err := time.Parse("2006-01-02T15:04", openMetRes.Current.Time)
+			if err != nil {
+				log.Printf("Time parse error: %v\n", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("time parse error"))
+				return
+			}
+
+			_, err = pool.Exec(ctx, "insert into meteo (name, temperature, timestamp) values ($1, $2, $3)", cityName, openMetRes.Current.Temperature2m, timestamp)
+			if err != nil {
+				log.Printf("Database insert error: %v\n", err)
+			}
+
+			meteo = Meteo{
+				Name:        cityName,
+				Timestamp:   timestamp,
+				Temperature: openMetRes.Current.Temperature2m,
+			}
+
+			log.Printf("Updated data for city: %s\n", cityName)
 		}
 
-		var raw []byte
-		raw, err = json.Marshal(meteo)
+		raw, err := json.Marshal(meteo)
 		if err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("internal error"))
+			w.Write([]byte("json marshal error"))
 			return
 		}
 
-		fmt.Printf("Requested city: %s\n", city)
+		w.Header().Set("Content-Type", "application/json")
 		_, err = w.Write(raw)
 		if err != nil {
 			log.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("internal error"))
-			return
 		}
 	})
 
@@ -87,7 +134,7 @@ func main() {
 		panic(err)
 	}
 
-	jobs, err := initJobs(ctx, s, conn)
+	jobs, err := initJobs(ctx, s, pool, geocodingClient, openmeteoClient)
 	if err != nil {
 		panic(err)
 	}
@@ -108,59 +155,65 @@ func main() {
 	go func() {
 		defer wg.Done()
 
-		fmt.Printf("starting job: %v\n", jobs[0].ID())
+		fmt.Printf("starting %d background jobs for cities: %v\n", len(jobs), mainCities)
 		s.Start()
 	}()
 
 	wg.Wait()
-
 }
 
-func initJobs(ctx context.Context, scheduler gocron.Scheduler, conn *pgx.Conn) ([]gocron.Job, error) {
+func initJobs(ctx context.Context, scheduler gocron.Scheduler, pool *pgxpool.Pool, geocodingClient *geocoding.Client, openmeteoClient *openmeteo.Client) ([]gocron.Job, error) {
+	var jobs []gocron.Job
 
-	httpClient := &http.Client{
-		Timeout: time.Second * 10,
+	for _, cityName := range mainCities {
+		city := cityName
+
+		j, err := scheduler.NewJob(
+			gocron.DurationJob(
+				10*time.Second,
+			),
+			gocron.NewTask(
+				func() {
+					geoRes, err := geocodingClient.GetCoords(city)
+					if err != nil {
+						log.Printf("Job error for %s (geocoding): %v\n", city, err)
+						return
+					}
+
+					if len(geoRes) == 0 {
+						log.Printf("Job error for %s: city not found\n", city)
+						return
+					}
+
+					openMetRes, err := openmeteoClient.GetTemperature(geoRes[0].Latitude, geoRes[0].Longitude)
+					if err != nil {
+						log.Printf("Job error for %s (weather API): %v\n", city, err)
+						return
+					}
+
+					timestamp, err := time.Parse("2006-01-02T15:04", openMetRes.Current.Time)
+					if err != nil {
+						log.Printf("Job error for %s (time parse): %v\n", city, err)
+						return
+					}
+
+					_, err = pool.Exec(ctx, "insert into meteo (name, temperature, timestamp) values ($1, $2, $3)", city, openMetRes.Current.Temperature2m, timestamp)
+					if err != nil {
+						log.Printf("Job error for %s (database): %v\n", city, err)
+						return
+					}
+
+					fmt.Printf("Background job: updated data for city: %s\n", city)
+				},
+			),
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to create job for %s: %w", city, err)
+		}
+
+		jobs = append(jobs, j)
 	}
 
-	geocodingClient := geocoding.NewClient(httpClient)
-	openmeteoClient := openmeteo.NewClient(httpClient)
-
-	j, err := scheduler.NewJob(
-		gocron.DurationJob(
-			10*time.Second,
-		),
-		gocron.NewTask(
-			func() {
-				geoRes, err := geocodingClient.GetCoords(city)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-				openMetRes, err := openmeteoClient.GetTemperature(geoRes[0].Latitude, geoRes[0].Longitude)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-				timestamp, err := time.Parse("2006-01-02T15:04", openMetRes.Current.Time)
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-				_, err = conn.Exec(ctx, "insert into meteo (city, temperature, timestamp) values ($1, $2, $3)", city, openMetRes.Current.Temperature2m, timestamp)
-				if err != nil {
-					log.Println(err)
-					return 
-				}
-				fmt.Printf("updated data for city: %s\n", city)
-			},
-		),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return []gocron.Job{j}, nil
+	return jobs, nil
 }

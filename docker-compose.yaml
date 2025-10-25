@@ -1,5 +1,5 @@
-
 services:
+
   pg:
     image: postgres:15
     restart: always
@@ -10,33 +10,7 @@ services:
     ports:
       - 54321:5432
     volumes:
-      - test_volume:/var/lib/postgresql
-
-  migrate:
-    image: migrate/migrate
-    depends_on:
-      - pg
-    volumes:
-      - ./database/migrations:/migrations
-      - ./wait-for-it.sh:/wait-for-it.sh
-    entrypoint: [
-      "sh",
-      "-c",
-      "/wait-for-it.sh pg:5432 -- migrate -path /migrations -database postgres://postgres:password@pg:5432/meteo?sslmode=disable up"
-    ]
-
-  app:
-    build: .
-    depends_on:
-      - pg
-      - migrate
-    volumes:
-      - ./wait-for-it.sh:/wait-for-it.sh
-    environment:
-      - DATABASE_URL=postgresql://postgres:password@pg:5432/meteo
-    ports:
-      - 3000:3000
-    command: ["sh", "-c", "/wait-for-it.sh pg:5432 -- ./meteo-service"]
+      - test_volume:/var/lib/postgresql/data
 
 volumes:
-  test_volume: {}
+  test_volume:

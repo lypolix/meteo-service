@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-type client struct {
+type Client struct {
 	httpClient *http.Client
 }
 
@@ -17,13 +17,13 @@ type Response struct {
 	Longitude float64 `json:"longitude"`
 }
 
-func NewClient(httpClient *http.Client) *client {
-	return &client{
+func NewClient(httpClient *http.Client) *Client {
+	return &Client{
 		httpClient: httpClient,
 	}
 }
 
-func (c *client) GetCoords(city string) ([]Response, error) {
+func (c *Client) GetCoords(city string) ([]Response, error) {
 	res, err := c.httpClient.Get(fmt.Sprintf("https://geocoding-api.open-meteo.com/v1/search?name=%s&count=1&language=ru&format=json", city))
 	if err != nil {
 		return []Response{}, err

@@ -60,10 +60,42 @@ func main() {
 	}
 
 	httpClient := &http.Client{
-		Timeout: time.Second * 10,
+		Timeout: time.Second * 60,
 	}
 	geocodingClient := geocoding.NewClient(httpClient)
 	openmeteoClient := openmeteo.NewClient(httpClient)
+
+	r.Get("/cities/search", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query().Get("q")
+		if query == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "missing query parameter"}`))
+			return
+		}
+	
+		// Используем SearchCities с count=10 для автодополнения
+		geoRes, err := geocodingClient.SearchCities(query, 10)
+		if err != nil {
+			log.Printf("Geocoding search error for '%s': %v\n", query, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "search error"}`))
+			return
+		}
+	
+		// Возвращаем список (даже если пустой)
+		raw, err := json.Marshal(geoRes)
+		if err != nil {
+			log.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error": "json marshal error"}`))
+			return
+		}
+	
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(raw)
+	})
+	
+
 
 	r.Get("/{city}", func(w http.ResponseWriter, r *http.Request) {
 		cityName := chi.URLParam(r, "city")

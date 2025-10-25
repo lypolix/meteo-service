@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"  // ДОБАВЬ этот импорт
 )
 
 type Client struct {
@@ -23,14 +24,37 @@ func NewClient(httpClient *http.Client) *Client {
 	}
 }
 
+// GetCoords возвращает первый найденный город (для получения погоды)
 func (c *Client) GetCoords(city string) ([]Response, error) {
-	res, err := c.httpClient.Get(fmt.Sprintf("https://geocoding-api.open-meteo.com/v1/search?name=%s&count=1&language=ru&format=json", city))
+	return c.searchCities(city, 1)
+}
+
+// SearchCities возвращает несколько результатов (для автодополнения)
+func (c *Client) SearchCities(city string, count int) ([]Response, error) {
+	return c.searchCities(city, count)
+}
+
+// Общая функция поиска
+func (c *Client) searchCities(city string, count int) ([]Response, error) {
+	encodedCity := url.QueryEscape(city)
+	
+	apiURL := fmt.Sprintf(
+		"https://geocoding-api.open-meteo.com/v1/search?name=%s&count=%d&language=en&format=json",
+		encodedCity,
+		count,
+	)
+
+	res, err := c.httpClient.Get(apiURL)
 	if err != nil {
 		return []Response{}, err
 	}
-
 	defer res.Body.Close()
-	
+
+	// Если 403, возвращаем пустой массив (не ошибку)
+	if res.StatusCode == http.StatusForbidden {
+		return []Response{}, nil
+	}
+
 	if res.StatusCode != http.StatusOK {
 		return []Response{}, fmt.Errorf("status code %d", res.StatusCode)
 	}
@@ -44,6 +68,10 @@ func (c *Client) GetCoords(city string) ([]Response, error) {
 		return []Response{}, err
 	}
 
-	return geoResp.Results, nil
+	if geoResp.Results == nil {
+		return []Response{}, nil
+	}
 
+	return geoResp.Results, nil
 }
+

@@ -73,7 +73,6 @@ func main() {
 			return
 		}
 	
-		// Используем SearchCities с count=10 для автодополнения
 		geoRes, err := geocodingClient.SearchCities(query, 10)
 		if err != nil {
 			log.Printf("Geocoding search error for '%s': %v\n", query, err)
@@ -82,7 +81,6 @@ func main() {
 			return
 		}
 	
-		// Возвращаем список (даже если пустой)
 		raw, err := json.Marshal(geoRes)
 		if err != nil {
 			log.Println(err)

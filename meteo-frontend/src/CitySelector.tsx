@@ -1,21 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  TextField, 
-  Autocomplete, 
-  Box, 
-  Chip, 
-  CircularProgress 
+import {
+  TextField,
+  Autocomplete,
+  Box,
+  Chip,
+  CircularProgress,
+  Paper,
 } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
 
 const popularCities = [
-  'Moscow',
-  'London',
-  'Paris',
-  'New York',
-  'Tokyo',
-  'Berlin',
-  'Rome',
-  'Madrid'
+  { label: 'Москва', value: 'moscow' },
+  { label: 'Лондон', value: 'london' },
+  { label: 'Париж', value: 'paris' },
+  { label: 'Нью-Йорк', value: 'new york' },
+  { label: 'Токио', value: 'tokyo' },
+  { label: 'Берлин', value: 'berlin' },
+  { label: 'Рим', value: 'rome' },
+  { label: 'Мадрид', value: 'madrid' },
 ];
 
 interface City {
@@ -35,7 +37,6 @@ export default function CitySelector({ city, setCity }: CitySelectorProps) {
   const [options, setOptions] = useState<City[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Автодополнение при вводе
   useEffect(() => {
     if (inputValue.length < 2) {
       setOptions([]);
@@ -43,9 +44,11 @@ export default function CitySelector({ city, setCity }: CitySelectorProps) {
     }
 
     setLoading(true);
-    
+
     const timer = setTimeout(() => {
-      fetch(`http://localhost:8080/cities/search?q=${encodeURIComponent(inputValue)}`)
+      fetch(
+        `http://localhost:8080/cities/search?q=${encodeURIComponent(inputValue)}`
+      )
         .then((resp) => resp.json())
         .then((data: City[]) => {
           setOptions(data || []);
@@ -55,13 +58,14 @@ export default function CitySelector({ city, setCity }: CitySelectorProps) {
           setOptions([]);
         })
         .finally(() => setLoading(false));
-    }, 300); // debounce 300ms
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [inputValue]);
 
   return (
     <Box>
+      {/* Поисковая строка */}
       <Autocomplete
         freeSolo
         options={options}
@@ -79,13 +83,26 @@ export default function CitySelector({ city, setCity }: CitySelectorProps) {
           if (typeof option === 'string') return option;
           return `${option.name}, ${option.country}`;
         }}
+        PaperComponent={({ children }) => (
+          <Paper elevation={8} sx={{ mt: 1 }}>
+            {children}
+          </Paper>
+        )}
         renderInput={(params) => (
           <TextField
             {...params}
             label="Введите название города"
             variant="outlined"
+            fullWidth
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 3,
+                backgroundColor: 'white',
+              },
+            }}
             InputProps={{
               ...params.InputProps,
+              startAdornment: <SearchIcon sx={{ color: 'text.secondary', mr: 1 }} />,
               endAdornment: (
                 <>
                   {loading ? <CircularProgress color="inherit" size={20} /> : null}
@@ -98,19 +115,36 @@ export default function CitySelector({ city, setCity }: CitySelectorProps) {
       />
 
       {/* Популярные города */}
-      <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-        {popularCities.map((cityName) => (
-          <Chip
-            key={cityName}
-            label={cityName}
-            onClick={() => {
-              setCity(cityName.toLowerCase());
-              setInputValue(cityName);
-            }}
-            color={city === cityName.toLowerCase() ? 'primary' : 'default'}
-            variant={city === cityName.toLowerCase() ? 'filled' : 'outlined'}
-          />
-        ))}
+      <Box sx={{ mt: 3 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 1,
+            justifyContent: 'center',
+          }}
+        >
+          {popularCities.map((cityItem) => (
+            <Chip
+              key={cityItem.value}
+              label={cityItem.label}
+              onClick={() => {
+                setCity(cityItem.value);
+                setInputValue(cityItem.label);
+              }}
+              color={city === cityItem.value ? 'primary' : 'default'}
+              variant={city === cityItem.value ? 'filled' : 'outlined'}
+              sx={{
+                fontWeight: city === cityItem.value ? 600 : 400,
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  boxShadow: 2,
+                },
+              }}
+            />
+          ))}
+        </Box>
       </Box>
     </Box>
   );

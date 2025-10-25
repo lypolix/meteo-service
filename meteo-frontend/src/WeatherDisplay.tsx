@@ -1,10 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Card, CardContent, Typography, CircularProgress, Alert } from '@mui/material';
+import {
+  Card,
+  CardContent,
+  Typography,
+  CircularProgress,
+  Alert,
+  Box,
+  Divider,
+} from '@mui/material';
+import ThermostatIcon from '@mui/icons-material/Thermostat';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import LocationOnIcon from '@mui/icons-material/LocationOn';
 
 interface WeatherData {
-  name: string;        // изменено: lowercase для консистентности с бэкендом
-  temperature: number; // изменено: lowercase
-  timestamp: string;   // изменено: lowercase
+  name: string;
+  temperature: number;
+  timestamp: string;
 }
 
 interface WeatherDisplayProps {
@@ -17,13 +28,12 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!city) return; // Защита от пустого города
+    if (!city) return;
 
     setLoading(true);
     setError('');
     setData(null);
 
-    // Исправлен порт: 8080 вместо 3000
     fetch(`http://localhost:8080/${city}`)
       .then((resp) => {
         if (!resp.ok) throw new Error('Данные не найдены');
@@ -40,25 +50,36 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
 
   if (loading) {
     return (
-      <Card sx={{ mt: 3 }}>
-        <CardContent sx={{ textAlign: 'center' }}>
-          <CircularProgress />
-          <Typography sx={{ mt: 2 }}>Загрузка...</Typography>
-        </CardContent>
+      <Card
+        sx={{
+          mt: 4,
+          p: 3,
+          textAlign: 'center',
+          borderRadius: 3,
+          background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+        }}
+      >
+        <CircularProgress size={60} />
+        <Typography sx={{ mt: 2 }} variant="h6" color="text.secondary">
+          Загрузка данных...
+        </Typography>
       </Card>
     );
   }
 
   if (error) {
-    return <Alert severity="error">Ошибка: {error}</Alert>;
+    return (
+      <Alert severity="error" sx={{ mt: 4, borderRadius: 3 }}>
+        Ошибка: {error}
+      </Alert>
+    );
   }
 
   if (!data) {
     return null;
   }
 
-  // Защита от undefined/null в data.name
-  const cityName = data.name 
+  const cityName = data.name
     ? data.name.charAt(0).toUpperCase() + data.name.slice(1)
     : 'Неизвестный город';
 
@@ -71,17 +92,52 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
   });
 
   return (
-    <Card sx={{ mt: 3 }}>
-      <CardContent>
-        <Typography variant="h5" component="h2" gutterBottom>
-          Погода в {cityName}
-        </Typography>
-        <Typography variant="h3" color="primary" gutterBottom>
-          {data.temperature}°C
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Обновлено: {dateFormatted}
-        </Typography>
+    <Card
+      elevation={0}
+      sx={{
+        mt: 4,
+        borderRadius: 4,
+        background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+        border: '1px solid',
+        borderColor: 'divider',
+      }}
+    >
+      <CardContent sx={{ p: 4 }}>
+        {/* Название города */}
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+          <LocationOnIcon sx={{ fontSize: 32, color: '#6366f1', mr: 1 }} />
+          <Typography variant="h4" component="h2" fontWeight={600}>
+            {cityName}
+          </Typography>
+        </Box>
+
+        <Divider sx={{ mb: 3 }} />
+
+        {/* Температура */}
+        <Box sx={{ textAlign: 'center', my: 4 }}>
+          <ThermostatIcon sx={{ fontSize: 80, color: '#ec4899', mb: 2 }} />
+          <Typography
+            variant="h1"
+            sx={{
+              fontWeight: 700,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}
+          >
+            {data.temperature}°C
+          </Typography>
+        </Box>
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* Время обновления */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <AccessTimeIcon sx={{ fontSize: 20, color: 'text.secondary', mr: 1 }} />
+          <Typography variant="body2" color="text.secondary">
+            Обновлено: {dateFormatted}
+          </Typography>
+        </Box>
       </CardContent>
     </Card>
   );

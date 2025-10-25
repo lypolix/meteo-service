@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardContent, Typography, CircularProgress, Alert } from '@mui/material';
 
 interface WeatherData {
-  Name: string;
-  Temperature: number;
-  Timestamp: string;
+  name: string;        // изменено: lowercase для консистентности с бэкендом
+  temperature: number; // изменено: lowercase
+  timestamp: string;   // изменено: lowercase
 }
 
 interface WeatherDisplayProps {
@@ -17,16 +17,19 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!city) return; // Защита от пустого города
+
     setLoading(true);
     setError('');
     setData(null);
 
-    fetch(`http://localhost:3000/${city}`)
+    // Исправлен порт: 8080 вместо 3000
+    fetch(`http://localhost:8080/${city}`)
       .then((resp) => {
         if (!resp.ok) throw new Error('Данные не найдены');
         return resp.json();
       })
-      .then((json) => {
+      .then((json: WeatherData) => {
         setData(json);
       })
       .catch((e) => {
@@ -37,10 +40,10 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
 
   if (loading) {
     return (
-      <Card>
-        <CardContent style={{ textAlign: 'center' }}>
+      <Card sx={{ mt: 3 }}>
+        <CardContent sx={{ textAlign: 'center' }}>
           <CircularProgress />
-          <Typography variant="body2" mt={2}>Загрузка...</Typography>
+          <Typography sx={{ mt: 2 }}>Загрузка...</Typography>
         </CardContent>
       </Card>
     );
@@ -54,15 +57,28 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
     return null;
   }
 
-  const dateFormatted = new Date(data.Timestamp).toLocaleString();
+  // Защита от undefined/null в data.name
+  const cityName = data.name 
+    ? data.name.charAt(0).toUpperCase() + data.name.slice(1)
+    : 'Неизвестный город';
+
+  const dateFormatted = new Date(data.timestamp).toLocaleString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
   return (
-    <Card>
+    <Card sx={{ mt: 3 }}>
       <CardContent>
-        <Typography variant="h5" gutterBottom>
-          Погода в {data.Name.charAt(0).toUpperCase() + data.Name.slice(1)}
+        <Typography variant="h5" component="h2" gutterBottom>
+          Погода в {cityName}
         </Typography>
-        <Typography variant="body1">Температура: {data.Temperature}°C</Typography>
+        <Typography variant="h3" color="primary" gutterBottom>
+          {data.temperature}°C
+        </Typography>
         <Typography variant="body2" color="text.secondary">
           Обновлено: {dateFormatted}
         </Typography>

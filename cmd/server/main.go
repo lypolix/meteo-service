@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 	"github.com/go-co-op/gocron/v2"
 	"github.com/lypolix/meteo-service/internal/client/http/geocoding"
 	openmeteo "github.com/lypolix/meteo-service/internal/client/http/open_meteo"
@@ -35,6 +36,15 @@ type Meteo struct {
 func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
+
+	r.Use(cors.Handler(cors.Options{
+        AllowedOrigins:   []string{"http://localhost:3000"}, 
+        AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+        AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+        AllowCredentials: false,
+        MaxAge:           300,
+    }))
+
 	ctx := context.Background()
 
 	pool, err := pgxpool.New(ctx, "postgresql://postgres:password@localhost:54321/meteo?sslmode=disable")

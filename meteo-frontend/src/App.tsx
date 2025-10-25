@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Container,
   Typography,
@@ -28,6 +28,20 @@ const theme = createTheme({
 
 function App() {
   const [city, setCity] = useState("moscow");
+
+  // Восстанавливаем выбранный город из localStorage при загрузке
+  useEffect(() => {
+    const savedCity = localStorage.getItem('selectedCity');
+    if (savedCity) {
+      setCity(savedCity);
+    }
+  }, []);
+
+  // Сохраняем выбранный город в localStorage
+  useEffect(() => {
+    localStorage.setItem('selectedCity', city);
+  }, [city]);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -38,7 +52,7 @@ function App() {
           py: 4,
         }}
       >
-        <Container maxWidth="md">
+        <Container maxWidth="lg">
           <Paper
             elevation={24}
             sx={{
@@ -65,7 +79,7 @@ function App() {
                 Погода сейчас
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                Актуальная информация о погоде в любой точке мира
+                Актуальная информация о погоде в любой точке мира • Автообновление каждые 2 минуты
               </Typography>
             </Box>
 
@@ -73,16 +87,6 @@ function App() {
             <WeatherDisplay city={city} />
 
             <Divider sx={{ my: 4 }} />
-            <Typography
-              variant="h5"
-              sx={{
-                mb: 2,
-                fontWeight: 700,
-                color: "#6366f1",
-              }}
-            >
-              Популярные города
-            </Typography>
             <PopularCityCards setCity={setCity} currentCity={city} />
 
             <Divider sx={{ my: 4 }} />
@@ -94,7 +98,7 @@ function App() {
                 color: "#6366f1",
               }}
             >
-              Интерактивная карта
+              Интерактивная карта мира
             </Typography>
             <WorldMap setCity={setCity} currentCity={city} />
           </Paper>

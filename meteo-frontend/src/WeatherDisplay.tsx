@@ -7,10 +7,12 @@ import {
   Alert,
   Box,
   Divider,
+  IconButton,
 } from '@mui/material';
 import ThermostatIcon from '@mui/icons-material/Thermostat';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 interface WeatherData {
   name: string;
@@ -26,29 +28,45 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
   const [data, setData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  useEffect(() => {
+  const fetchWeather = async () => {
     if (!city) return;
 
     setLoading(true);
     setError('');
-    setData(null);
 
-    fetch(`http://localhost:8080/${city}`)
-      .then((resp) => {
-        if (!resp.ok) throw new Error('Данные не найдены');
-        return resp.json();
-      })
-      .then((json: WeatherData) => {
-        setData(json);
-      })
-      .catch((e) => {
-        setError(e.message);
-      })
-      .finally(() => setLoading(false));
+    try {
+      const response = await fetch(`http://localhost:8080/${city}`);
+      if (!response.ok) throw new Error('Данные не найдены');
+      
+      const json: WeatherData = await response.json();
+      setData(json);
+      setLastUpdated(new Date());
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Загружаем погоду при изменении города
+  useEffect(() => {
+    fetchWeather();
   }, [city]);
 
-  if (loading) {
+  // Автообновление каждые 2 минуты
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (city) {
+        fetchWeather();
+      }
+    }, 120000); // 2 минуты
+
+    return () => clearInterval(interval);
+  }, [city]);
+
+  if (loading && !data) {
     return (
       <Card
         sx={{
@@ -67,9 +85,17 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
     );
   }
 
-  if (error) {
+  if (error && !data) {
     return (
-      <Alert severity="error" sx={{ mt: 4, borderRadius: 3 }}>
+      <Alert 
+        severity="error" 
+        sx={{ mt: 4, borderRadius: 3 }}
+        action={
+          <IconButton color="inherit" size="small" onClick={fetchWeather}>
+            <RefreshIcon />
+          </IconButton>
+        }
+      >
         Ошибка: {error}
       </Alert>
     );
@@ -91,6 +117,9 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
     minute: '2-digit',
   });
 
+  const timeSinceUpdate = lastUpdated ? 
+    Math.round((new Date().getTime() - lastUpdated.getTime()) / 1000 / 60) : 0;
+
   return (
     <Card
       elevation={0}
@@ -102,7 +131,25 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
         borderColor: 'divider',
       }}
     >
-      <CardContent sx={{ p: 4 }}>
+      <CardContent sx={{ p: 4, position: 'relative' }}>
+        {/* Кнопка обновления */}
+        <IconButton
+          onClick={fetchWeather}
+          disabled={loading}
+          sx={{
+            position: 'absolute',
+            top: 16,
+            right: 16,
+            backgroundColor: 'primary.main',
+            color: 'white',
+            '&:hover': {
+              backgroundColor: 'primary.dark',
+            },
+          }}
+        >
+          <RefreshIcon />
+        </IconButton>
+
         {/* Название города */}
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
           <LocationOnIcon sx={{ fontSize: 32, color: '#6366f1', mr: 1 }} />
@@ -132,11 +179,21 @@ export default function WeatherDisplay({ city }: WeatherDisplayProps) {
         <Divider sx={{ my: 3 }} />
 
         {/* Время обновления */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <AccessTimeIcon sx={{ fontSize: 20, color: 'text.secondary', mr: 1 }} />
-          <Typography variant="body2" color="text.secondary">
-            Обновлено: {dateFormatted}
-          </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <AccessTimeIcon sx={{ fontSize: 20, color: 'text.secondary', mr: 1 }} />
+            <Typography variant="body2" color="text.secondary">
+              Обновлено: {dateFormatted}
+            </Typography>
+          </Box>
+          {timeSinceUpdate > 0 && (
+            <Typography variant="caption" color="text.secondary">
+              ({timeSinceUpdate} мин. назад)
+            </Typography>
+          )}
+          {loading && (
+            <CircularProgress size={16} />
+          )}
         </Box>
       </CardContent>
     </Card>

@@ -50,7 +50,9 @@ func (h *Handler) searchCities(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("searchCities error: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		if _, err := w.Write([]byte("internal error")); err != nil {
+			log.Println("write response error:", err)
+		}
 		return
 	}
 
@@ -68,7 +70,9 @@ func (h *Handler) getCity(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == meteo.ErrCityNotFound {
 			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte("city not found"))
+			if _, err := w.Write([]byte("city not found")); err != nil {
+				log.Println("write response error:", err)
+			}
 			return
 		}
 		log.Printf("getCity error for %s: %v\n", city, err)
@@ -84,7 +88,9 @@ func (h *Handler) getCity(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("json marshal error"))
+		if _, err := w.Write([]byte("json marshall error")); err != nil {
+			log.Println("write response error:", err)
+		}
 		return
 	}
 

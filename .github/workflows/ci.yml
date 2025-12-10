@@ -41,5 +41,5 @@ jobs:
         env:
             GOLANGCI_LINT_GO_VERSION: 1.25.1
         with:
-          version: v2.1.6
+          version: v2.5.0
           args: ./...

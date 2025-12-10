@@ -29,7 +29,9 @@ func (c *Client) GetTemperature(lat, long float64) (Response, error) {
 		return Response{}, err
 	}
 
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	if res.StatusCode != http.StatusOK {
 		return Response{}, fmt.Errorf("status code %d", res.StatusCode)

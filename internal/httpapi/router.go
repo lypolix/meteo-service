@@ -73,7 +73,10 @@ func (h *Handler) getCity(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("getCity error for %s: %v\n", city, err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		if _, err := w.Write([]byte("internal error")); err != nil {
+			log.Println("write response error:", err)
+		}
+		
 		return
 	}
 

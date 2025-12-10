@@ -48,7 +48,9 @@ func (c *Client) searchCities(city string, count int) ([]Response, error) {
 	if err != nil {
 		return []Response{}, err
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	// Если 403, возвращаем пустой массив (не ошибку)
 	if res.StatusCode == http.StatusForbidden {

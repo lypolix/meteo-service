@@ -11,18 +11,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/go-co-op/gocron/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lypolix/meteo-service/internal/client/http/geocoding"
 	openmeteo "github.com/lypolix/meteo-service/internal/client/http/open_meteo"
 )
 
 const (
-	httpPort = ":8080"
+	httpPort   = ":8080"
+	cacheTTL   = time.Hour
+	jobPeriod  = 10 * time.Second
 )
 
 var mainCities = []string{"moscow", "london", "paris", "new york", "tokyo"}
@@ -38,12 +39,12 @@ func main() {
 	r.Use(middleware.Logger)
 
 	r.Use(cors.Handler(cors.Options{
-        AllowedOrigins:   []string{"http://localhost:3000"}, 
-        AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-        AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
-        AllowCredentials: false,
-        MaxAge:           300,
-    }))
+		AllowedOrigins:   []string{"http://localhost:3000"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	}))
 
 	ctx := context.Background()
 
@@ -65,6 +66,8 @@ func main() {
 	geocodingClient := geocoding.NewClient(httpClient)
 	openmeteoClient := openmeteo.NewClient(httpClient)
 
+	meteoCache := NewMeteoCache()
+
 	r.Get("/cities/search", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query().Get("q")
 		if query == "" {
@@ -72,7 +75,7 @@ func main() {
 			w.Write([]byte(`{"error": "missing query parameter"}`))
 			return
 		}
-	
+
 		geoRes, err := geocodingClient.SearchCities(query, 10)
 		if err != nil {
 			log.Printf("Geocoding search error for '%s': %v\n", query, err)
@@ -80,7 +83,7 @@ func main() {
 			w.Write([]byte(`{"error": "search error"}`))
 			return
 		}
-	
+
 		raw, err := json.Marshal(geoRes)
 		if err != nil {
 			log.Println(err)
@@ -88,71 +91,107 @@ func main() {
 			w.Write([]byte(`{"error": "json marshal error"}`))
 			return
 		}
-	
+
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(raw)
 	})
-	
-
 
 	r.Get("/{city}", func(w http.ResponseWriter, r *http.Request) {
 		cityName := chi.URLParam(r, "city")
-		cityName = strings.ToLower(cityName) 
+		cityName = strings.ToLower(cityName)
 
+		// 1. Пробуем кеш в памяти
+		if cached, ok := meteoCache.Get(cityName); ok {
+			raw, err := json.Marshal(cached)
+			if err != nil {
+				log.Println(err)
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("json marshal error"))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(raw)
+			return
+		}
+
+		// 2. Пробуем БД
 		var meteo Meteo
-
 		err = pool.QueryRow(
 			ctx,
 			"select name, timestamp, temperature from meteo where name = $1 order by timestamp desc limit 1",
 			cityName,
 		).Scan(&meteo.Name, &meteo.Timestamp, &meteo.Temperature)
 
-		if err != nil || time.Since(meteo.Timestamp) > time.Hour {
-			log.Printf("Fetching fresh data for city: %s\n", cityName)
+		useDB := err == nil && time.Since(meteo.Timestamp) <= cacheTTL
 
-			geoRes, err := geocodingClient.GetCoords(cityName)
+		if useDB {
+			meteoCache.Set(cityName, meteo, cacheTTL)
+
+			raw, err := json.Marshal(meteo)
 			if err != nil {
-				log.Printf("Geocoding error for %s: %v\n", cityName, err)
+				log.Println(err)
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("geocoding error"))
+				w.Write([]byte("json marshal error"))
 				return
 			}
 
-			if len(geoRes) == 0 {
-				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte("city not found"))
-				return
-			}
-
-			openMetRes, err := openmeteoClient.GetTemperature(geoRes[0].Latitude, geoRes[0].Longitude)
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write(raw)
 			if err != nil {
-				log.Printf("Weather API error for %s: %v\n", cityName, err)
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("weather api error"))
-				return
+				log.Println(err)
 			}
-
-			timestamp, err := time.Parse("2006-01-02T15:04", openMetRes.Current.Time)
-			if err != nil {
-				log.Printf("Time parse error: %v\n", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("time parse error"))
-				return
-			}
-
-			_, err = pool.Exec(ctx, "insert into meteo (name, temperature, timestamp) values ($1, $2, $3)", cityName, openMetRes.Current.Temperature2m, timestamp)
-			if err != nil {
-				log.Printf("Database insert error: %v\n", err)
-			}
-
-			meteo = Meteo{
-				Name:        cityName,
-				Timestamp:   timestamp,
-				Temperature: openMetRes.Current.Temperature2m,
-			}
-
-			log.Printf("Updated data for city: %s\n", cityName)
+			return
 		}
+
+		// 3. Фетчим свежие данные
+		log.Printf("Fetching fresh data for city: %s\n", cityName)
+
+		geoRes, err := geocodingClient.GetCoords(cityName)
+		if err != nil {
+			log.Printf("Geocoding error for %s: %v\n", cityName, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("geocoding error"))
+			return
+		}
+
+		if len(geoRes) == 0 {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("city not found"))
+			return
+		}
+
+		openMetRes, err := openmeteoClient.GetTemperature(geoRes[0].Latitude, geoRes[0].Longitude)
+		if err != nil {
+			log.Printf("Weather API error for %s: %v\n", cityName, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("weather api error"))
+			return
+		}
+
+		timestamp, err := time.Parse("2006-01-02T15:04", openMetRes.Current.Time)
+		if err != nil {
+			log.Printf("Time parse error: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("time parse error"))
+			return
+		}
+
+		_, err = pool.Exec(ctx, "insert into meteo (name, temperature, timestamp) values ($1, $2, $3)",
+			cityName, openMetRes.Current.Temperature2m, timestamp)
+		if err != nil {
+			log.Printf("Database insert error: %v\n", err)
+		}
+
+		meteo = Meteo{
+			Name:        cityName,
+			Timestamp:   timestamp,
+			Temperature: openMetRes.Current.Temperature2m,
+		}
+
+		// Обновляем кеш
+		meteoCache.Set(cityName, meteo, cacheTTL)
+
+		log.Printf("Updated data for city: %s\n", cityName)
 
 		raw, err := json.Marshal(meteo)
 		if err != nil {
@@ -174,7 +213,7 @@ func main() {
 		panic(err)
 	}
 
-	jobs, err := initJobs(ctx, s, pool, geocodingClient, openmeteoClient)
+	jobs, err := initJobs(ctx, s, pool, geocodingClient, openmeteoClient, meteoCache)
 	if err != nil {
 		panic(err)
 	}
@@ -202,16 +241,21 @@ func main() {
 	wg.Wait()
 }
 
-func initJobs(ctx context.Context, scheduler gocron.Scheduler, pool *pgxpool.Pool, geocodingClient *geocoding.Client, openmeteoClient *openmeteo.Client) ([]gocron.Job, error) {
+func initJobs(
+	ctx context.Context,
+	scheduler gocron.Scheduler,
+	pool *pgxpool.Pool,
+	geocodingClient *geocoding.Client,
+	openmeteoClient *openmeteo.Client,
+	cache *MeteoCache,
+) ([]gocron.Job, error) {
 	var jobs []gocron.Job
 
 	for _, cityName := range mainCities {
 		city := cityName
 
 		j, err := scheduler.NewJob(
-			gocron.DurationJob(
-				10*time.Second,
-			),
+			gocron.DurationJob(jobPeriod),
 			gocron.NewTask(
 				func() {
 					geoRes, err := geocodingClient.GetCoords(city)
@@ -237,11 +281,19 @@ func initJobs(ctx context.Context, scheduler gocron.Scheduler, pool *pgxpool.Poo
 						return
 					}
 
-					_, err = pool.Exec(ctx, "insert into meteo (name, temperature, timestamp) values ($1, $2, $3)", city, openMetRes.Current.Temperature2m, timestamp)
+					_, err = pool.Exec(ctx, "insert into meteo (name, temperature, timestamp) values ($1, $2, $3)",
+						city, openMetRes.Current.Temperature2m, timestamp)
 					if err != nil {
 						log.Printf("Job error for %s (database): %v\n", city, err)
 						return
 					}
+
+					// Обновляем кеш для города
+					cache.Set(city, Meteo{
+						Name:        city,
+						Timestamp:   timestamp,
+						Temperature: openMetRes.Current.Temperature2m,
+					}, cacheTTL)
 
 					fmt.Printf("Background job: updated data for city: %s\n", city)
 				},

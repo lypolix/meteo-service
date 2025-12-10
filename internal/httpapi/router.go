@@ -95,5 +95,7 @@ func (h *Handler) getCity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(raw)
+	if _, err := w.Write(raw); err != nil {
+		log.Println("write response error:", err)
+	}
 }

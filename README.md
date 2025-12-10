@@ -18,6 +18,7 @@
   - [Open-Meteo Weather API](https://open-meteo.com/) — получение температуры и погодных условий.
   - [Open-Meteo Geocoding API](https://open-meteo.com/en/docs/geocoding-api) — поиск и автодополнение городов.
 - **Миграции:** SQL-файлы в папке ./database/migrations
+- **Кэширование** in-memory кэширование
 
 ### Фронтенд
 

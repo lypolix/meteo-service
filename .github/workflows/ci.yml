@@ -37,7 +37,7 @@ jobs:
           go-version: '1.25.1'
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@vlatest
+        uses: golangci/golangci-lint-action@latest
         env:
             GOLANGCI_LINT_GO_VERSION: 1.25.1
         with:
